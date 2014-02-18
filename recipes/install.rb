@@ -52,5 +52,9 @@ elsif (leader.uptime_seconds < 900)
 end
 
 # Install priam cluster management - this starts Cassandra
-include_recipe "cassandra-priam::priam"
+if node[:casssandra][:priam][:install_type] == 'binary'
+  include_recipe "cassandra-priam::priam_binary"
+else
+  include_recipe "cassandra-priam::priam_from_source"
+end
 
