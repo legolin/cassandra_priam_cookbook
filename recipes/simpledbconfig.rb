@@ -37,53 +37,68 @@ if node['cassandra']['priam_s3_bucket'] == node.default['cassandra']['priam_s3_b
     "something other than #{node['cassandra']['priam_s3_bucket']}")
 end
 
+# default safe single and multi-region attributes
+priam_simpledb_config = { # Hash maps SDB Item names (Strings) to each value
+  's3.bucket'           => node['cassandra']['priam_s3_bucket'],
+  's3.base_dir'         => node['cassandra']['priam_s3_base_dir'],
+  'clustername'         => node['cassandra']['priam_clustername'],
+  'data.location'       => node['cassandra']['priam_data_location'],
+  'endpoint_snitch'     => node['cassandra']['priam_endpoint_snitch'],
+  'cache.location'      => node['cassandra']['priam_cache_location'],
+  'commitlog.location'  => node['cassandra']['priam_commitlog_location'],
+  'cass.home'           => node['cassandra']['priam_cass_home'],
+  'cass.startscript'    => node['cassandra']['priam_cass_startscript'],
+  'cass.stopscript'     => node['cassandra']['priam_cass_stopscript'],
+  'upload.throttle'     => node['cassandra']['priam_upload_throttle'],
+}
+
+# unsafe attributes : present but empty on certain deployments this breaks them
+# priam.multiregion.enable should only be created if it is true - otherwise,
+# if there is a record present, priam will try to modify a security group
+# unnecessarily and we may not want that behaviour.
+if node['cassandra']['priam_multiregion_enable'] == "true"
+  priam_simpledb_config.merge!('multiregion.enable' =>
+    node['cassandra']['priam_multiregion_enable'])
+end
+# priam.zones.available should not be created if there is no non-nil
+# (i.e. overriding) chef node attribute for it - reason: it breaks single-region
+# deployments. caveat: must be set for multi-region deployments.
+if node['cassandra']['priam_zones_available'] != nil
+  priam_simpledb_config.merge!('zones.available' =>
+    node['cassandra']['priam_zones_available'])
+end
+
+Chef::Log.debug "priam_simpledb_config: #{priam_simpledb_config.inspect}"
+  
 chef_gem 'aws-sdk'
 ruby_block "set-SimpleDB-Properties" do
   block do
+
+    Chef::Log.info "Requiring aws-sdk"
+
     require 'aws-sdk'
     # We read the credentials from the same place that Priam will.
     creds_file  = "/etc/awscredential.properties"
-    keys        = Hash[File.read(creds_file).split.map{|e| e.split("=") }]
-    sdb         = AWS::SimpleDB.new(
-      :access_key_id      => keys["AWSACCESSID"],
-      :secret_access_key  => keys["AWSKEY"]
-    )
-    # create domains as needed
+    
+    # Use the creds file if it exists. Otherwise, it will try to use IAM.
+    if File.exist?(creds_file)
+      keys        = Hash[File.read(creds_file).split.map{|e| e.split("=") }]
+      sdb         = AWS::SimpleDB.new(
+        :access_key_id      => keys["AWSACCESSID"],
+        :secret_access_key  => keys["AWSKEY"]
+      )
+    else
+      sdb = AWS::SimpleDB.new
+    end
+
+    # Create domains as needed
     %w{PriamProperties InstanceIdentity}.each do |domain_name|
       sdb.domains.create(domain_name) unless sdb.domains[domain_name].exists?
     end
-    # default safe single and multi-region attributes
-    defaults = { # Hash maps SDB Item names (Strings) to each value
-      's3.bucket'           => node['cassandra']['priam_s3_bucket'],
-      's3.base_dir'         => node['cassandra']['priam_s3_base_dir'],
-      'clustername'         => node['cassandra']['priam_clustername'],
-      'data.location'       => node['cassandra']['priam_data_location'],
-      'endpoint_snitch'     => node['cassandra']['priam_endpoint_snitch'],
-      'cache.location'      => node['cassandra']['priam_cache_location'],
-      'commitlog.location'  => node['cassandra']['priam_commitlog_location'],
-      'cass.home'           => node['cassandra']['priam_cass_home'],
-      'cass.startscript'    => node['cassandra']['priam_cass_startscript'],
-      'cass.stopscript'     => node['cassandra']['priam_cass_stopscript'],
-      'upload.throttle'     => node['cassandra']['priam_upload_throttle'],
-    }
-
-    # unsafe attributes : present but empty on certain deployments this breaks them
-    # priam.multiregion.enable should only be created if it is true - otherwise,
-    # if there is a record present, priam will try to modify a security group
-    # unnecessarily and we may not want that behaviour.
-    if node['cassandra']['priam_multiregion_enable'] == "true"
-      defaults.merge!('multiregion.enable' =>
-        node['cassandra']['priam_multiregion_enable'])
-    end
-    # priam.zones.available should not be created if there is no non-nil
-    # (i.e. overriding) chef node attribute for it - reason: it breaks single-region
-    # deployments. caveat: must be set for multi-region deployments.
-    if node['cassandra']['priam_zones_available'] != nil
-      defaults.merge!('zones.available' =>
-        node['cassandra']['priam_zones_available'])
-    end
+    
     # Now set all values in SimpleDB
-    defaults.each do |name, value|
+    Chef::Log.info "Now setting SimpleDB attributes"
+    priam_simpledb_config.each do |name, value|
       item_name = "#{node['cassandra']['priam_clustername']}.priam.#{name}"
       Chef::Log.debug "Setting SimpleDB attribute in #{item_name} to #{value}"
       sdb.domains['PriamProperties'].items.create(item_name,
@@ -93,4 +108,5 @@ ruby_block "set-SimpleDB-Properties" do
       )
     end
   end
+  action :create
 end

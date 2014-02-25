@@ -36,31 +36,47 @@ git priam_source_cache_path do
   not_if  { File.exists? priam_source_cache_path }
 end
 
-# Save the patch to the file
-cookbook_file "enableIAM.patch" do
-  path "#{priam_source_cache_path}/enableIAM.patch"
-  action :create_if_missing
+
+# Get Priam version
+#
+ruby_block "get-priam-version" do
+  block do
+    version = File.read("#{priam_source_cache_path}/gradle.properties").scan(/version=([\w\d\.\-]+)/)[0][0]
+    node.normal[:cassandra][:priam][:source][:version] = version
+  end
+  action :create
 end
 
-# Apply the patch
-bash "priam_src_apply_patch" do
-  cwd priam_source_cache_path
-  code "git apply enableIAM.patch"
+# Apply IAM patch if requested.
+if node[:cassandra][:priam][:aws_credentials] == 'IAM'
+  # Save the patch to the file
+  cookbook_file "enableIAM.patch" do
+    path "#{priam_source_cache_path}/enableIAM.patch"
+    action :create_if_missing
+  end
+
+  # Apply the patch
+  bash "priam_src_apply_patch" do
+    cwd priam_source_cache_path
+    code "git checkout . && git apply enableIAM.patch"
+  end
 end
 
 # Build Priam
-bash "priam_src_apply_patch" do
+bash "priam_build" do
   cwd priam_source_cache_path
-  code "./gradlew build"
+  code lazy { "./gradlew clean && ./gradlew build" }
+  notifies :restart, "service[cassandra]", :delayed
+  not_if "test -f #{priam_source_cache_path}/priam/build/libs/priam-#{node[:cassandra][:priam][:source][:version]}.jar"
 end
 
 # Install Priam
-# local_archive = "#{node[:cassandra][:priam][:cass_home]}/lib/priam.jar"
-# bash 'copy-priam-binary' do
-#   source  src_url
-#   mode    0644
-#   not_if  { File.exists? local_archive }
-# end
+bash "install_priam" do
+  code lazy { <<-EOL
+  cp #{priam_source_cache_path}/priam-cass-extensions/build/libs/priam-cass-extensions-#{node[:cassandra][:priam][:source][:version]}.jar "#{node[:cassandra][:priam_cass_home]}/lib/priam-cass-extensions-#{node[:cassandra][:priam][:source][:version]}.jar"
+    EOL
+  }
+end
 
 # Give priam running as node[:tomcat][:user] access to write the Cassandra config
 file "#{node[:cassandra][:priam_cass_home]}/conf/cassandra.yaml" do
@@ -70,29 +86,41 @@ file "#{node[:cassandra][:priam_cass_home]}/conf/cassandra.yaml" do
   action    :touch
 end
 
-# # pull in the original cassandra.in.sh from where it lies in the cassandra home
-# # concatenate the Priam agent onto the end of the file
-# # copy the file where it will be picked up
-# # sadly doing this a chef-way is too bothersome compared to shellscript
-# bash "Setup Agent in Cassandra Include File" do
-#   user node[:cassandra][:user]
-#   cwd "/"
-#   code <<-EOH
-#   cp #{node[:cassandra][:priam][:cass_home]}/bin/cassandra.in.sh /tmp
-#   echo "export JVM_OPTS=\"-javaagent:\\$CASSANDRA_HOME/lib/priam-cass-extensions-#{node[:cassandra][:priam][:binary][:version]}.jar\"" >> /tmp/cassandra.in.sh
-#   cp /tmp/cassandra.in.sh #{node[:cassandra][:priam][:cass_home]}/
-#   EOH
-#   not_if "grep #{node[:cassandra][:priam][:binary][:version]} #{node[:cassandra][:priam][:binary][:cass_home]}/cassandra.in.sh"
-# end
+# Backup the original cassandra.in.sh script
+#
+bash 'backup-cassandra-init-script' do
+  cwd node[:cassandra][:priam_cass_home]
+  code 'cp bin/cassandra.in.sh bin/cassandra.in.sh.original'
+  not_if { File.exist?("#{node[:cassandra][:priam_cass_home]}/bin/cassandra.in.sh.original") }
+end
 
-# # Priam's War file goes into tomcat's special directory - this event causes Priam to start running.
-# # When Priam runs, it configures cassandra and starts it, either replacing a lost node or booting a new one.
-# src_url = node[:cassandra][:priam][:binary][:web_war][:src_url]
-# local_archive = "#{node[:tomcat][:webapp_dir]}/Priam.war"
-# remote_file local_archive do
-#   source  src_url
-#   mode    0644
-#   not_if  { File.exists? local_archive }
-#   checksum node[:cassandra][:priam][:binary][:web_war][:checksum]
-# end
+# Create a cassandra.in.sh script that adds the Priam agent
+#
+bash 'create-cassandra-init-script' do
+  cwd node[:cassandra][:priam_cass_home]
+  code lazy { <<-EOL
+    cp bin/cassandra.in.sh.original bin/cassandra.in.sh
+    echo "\n\nexport JVM_OPTS=\"-javaagent:\\$CASSANDRA_HOME/lib/priam-cass-extensions-#{node[:cassandra][:priam][:source][:version]}.jar\"" >> bin/cassandra.in.sh
+    EOL
+  }
+end
 
+# Give priam running as node[:tomcat][:user] access to the log file it wants to write to
+file "/var/log/tomcat7/priam.log" do
+  owner     "#{node[:tomcat][:user]}"
+  group     "#{node[:tomcat][:group]}"
+  mode      "0755"
+  action    :touch
+end
+
+# Priam's War file goes into tomcat's special directory - this event causes Priam to start running.
+# When Priam runs, it configures cassandra and starts it, either replacing a lost node or booting a new one.
+#
+target_path = "#{node[:tomcat][:webapp_dir]}/Priam.war"
+bash "install_priam_war" do
+  code lazy { <<-EOL
+  cp #{priam_source_cache_path}/priam-web/build/libs/priam-web-#{node[:cassandra][:priam][:source][:version]}.war #{target_path}
+    EOL
+  }
+  not_if { File.exist? target_path }
+end

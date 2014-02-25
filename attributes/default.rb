@@ -4,8 +4,10 @@
 # For Datastax Cassandra the prefix is "dsc-"
 default[:cassandra][:nameprefix] = "dsc-cassandra"
 
+default[:cassandra][:discovery][:chef_role] = "cassandra"
+
 # Where to get Cassandra from: Directly from Datastax
-default[:cassandra][:version] = "2.0.10"
+default[:cassandra][:version] = "2.0.5"
 default[:cassandra][:src_url] = "http://downloads.datastax.com/community/#{node[:cassandra][:nameprefix]}-#{node['cassandra']['version']}-bin.tar.gz"
 default[:cassandra][:checksum] = "c731c8e2bc84769f884f423fb839ab3205279972b842ab37fdace49ef511e544"
 
@@ -14,9 +16,9 @@ default[:cassandra][:checksum] = "c731c8e2bc84769f884f423fb839ab3205279972b842ab
 # By default files are in a Medidata-controlled S3 bucket with no authentication, because at the time of writing there are no Priam 1.2 builds available at the maven.org site.
 SRC = 'http://dl.imedidata.net/cassandra'
 default[:cassandra][:priam][:install_type] = 'binary' # default: binary.  To build from source, change to 'source'
-default[:cassandra][:priam][:source][:repo] = 'https://github.com/Netflix/Priam.git'
-default[:cassandra][:priam][:source][:branch] = 'master'
-default[:cassandra][:priam][:source][:aws_credentials] = 'simple' # default: simple.  To use IAM, change to 'IAM'
+default[:cassandra][:priam][:source][:git_repository] = 'https://github.com/Netflix/Priam.git'
+default[:cassandra][:priam][:source][:git_revision] = 'master'
+default[:cassandra][:priam][:aws_credentials] = 'simple' # default: simple.  To use IAM, change to 'IAM', and use the source install.
 
 default[:cassandra][:priam][:binary][:version] = "1.2.17"
 default[:cassandra][:priam][:binary][:web_war][:src_url] = "#{SRC}/priam/#{node['cassandra']['priam_version']}/priam-web-#{node['cassandra']['priam_version']}.war"
@@ -77,10 +79,10 @@ default[:cassandra][:priam_s3_bucket] = "SET_ME_PLEASE"
 # The rest - relatively self-explanatory variables, safe defaults for ec2 deployment where /mnt is a large block device.
 default[:cassandra][:priam_s3_base_dir] = "cassandra_backups"
 default[:cassandra][:priam_cass_home] = "#{node[:cassandra][:parentdir]}/cassandra"
-default[:cassandra][:priam_data_location] = "/mnt/cassandra/data"
-default[:cassandra][:priam_cache_location] = "/mnt/cassandra/saved_caches"
-default[:cassandra][:priam_commitlog_location] = "/mnt/cassandra/commitlog"
-default[:cassandra][:priam_cass_startscript] = "/etc/init.d/cassandra start"
-default[:cassandra][:priam_cass_stopscript] = "/etc/init.d/cassandra stop"
+default[:cassandra][:priam_data_location] = "/data/cassandra/data"
+default[:cassandra][:priam_cache_location] = "/data/cassandra/saved_caches"
+default[:cassandra][:priam_commitlog_location] = "/data/cassandra/commitlog"
+default[:cassandra][:priam_cass_startscript] = "/usr/bin/service cassandra start"
+default[:cassandra][:priam_cass_stopscript] = "/usr/bin/service cassandra stop"
 default[:cassandra][:priam_upload_throttle] = "5"
 

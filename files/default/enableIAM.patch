@@ -1,0 +1,31 @@
+From b226148aa55d0c68919e31a2a3bdb18bd4904cb0 Mon Sep 17 00:00:00 2001
+From: root <root@ip-10-45-15-204.ec2.internal>
+Date: Wed, 12 Feb 2014 20:32:00 +0000
+Subject: [PATCH] Enable IAM credentials
+
+---
+ .../priam/defaultimpl/PriamGuiceModule.java        |    3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/priam/src/main/java/com/netflix/priam/defaultimpl/PriamGuiceModule.java b/priam/src/main/java/com/netflix/priam/defaultimpl/PriamGuiceModule.java
+index d394461..ff6732e 100644
+--- a/priam/src/main/java/com/netflix/priam/defaultimpl/PriamGuiceModule.java
++++ b/priam/src/main/java/com/netflix/priam/defaultimpl/PriamGuiceModule.java
+@@ -24,6 +24,7 @@ import com.netflix.priam.aws.S3FileSystem;
+ import com.netflix.priam.backup.IBackupFileSystem;
+
+ import com.netflix.priam.ICredential;
++import com.netflix.priam.aws.IAMCredential;
+
+
+ public class PriamGuiceModule extends AbstractModule
+@@ -36,6 +37,6 @@ public class PriamGuiceModule extends AbstractModule
+         bind(IBackupFileSystem.class).annotatedWith(Names.named("backup")).to(S3FileSystem.class);
+         bind(IBackupFileSystem.class).annotatedWith(Names.named("incr_restore")).to(S3FileSystem.class);
+         bind(IBackupFileSystem.class).annotatedWith(Names.named("backup_status")).to(S3FileSystem.class);
+-        bind(ICredential.class).to(ClearCredential.class);
++        bind(ICredential.class).to(IAMCredential.class);
+     }
+ }
+--
+1.7.9.5

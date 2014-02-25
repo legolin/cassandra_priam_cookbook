@@ -86,6 +86,8 @@ end
 # Priam starts cassandra when it starts up.
 # We will not bother trying to recreate/stop the service once the Cassandra daemon is running.
 runit_service "cassandra" do
+  group node[:tomcat][:group]
+  owner node[:tomcat][:user] 
   action :enable
   env({ 'HOME' => node[:cassandra][:priam_cass_home] })
   not_if "pgrep -f CassandraDaemon"
